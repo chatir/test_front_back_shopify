@@ -5,7 +5,7 @@ const cors    = require('cors');
 
 const app = express();
 app.use(cors({
-  origin: 'https://sxnav0-cj.myshopify.com',  // your front-store domain
+  origin: 'https://sxnav0-cj.myshopify.com',   // your front-store domain
   methods: ['POST'],
   allowedHeaders: ['Content-Type']
 }));
@@ -16,63 +16,60 @@ const SHOP_DOMAIN  = process.env.SHOPIFY_STORE;      // e.g. "3ryvgw-yp.myshopif
 const ACCESS_TOKEN = process.env.SHOPIFY_API_TOKEN;  // your back-store Admin token
 
 if (!SHOP_DOMAIN || !ACCESS_TOKEN) {
-  console.error('🚨 Missing SHOPIFY_STORE or SHOPIFY_API_TOKEN in env');
+  console.error('🚨 Missing SHOPIFY_STORE or SHOPIFY_API_TOKEN');
   process.exit(1);
 }
 
 app.post('/create-draft-order', async (req, res) => {
   const { price, quantity } = req.body;
-  if (!price || !quantity) {
-    return res.status(400).json({ success: false, error: 'price & quantity required' });
-  }
-
-  // 1) Compute total = price * quantity
-  const unit   = parseFloat(price);
-  const qty    = parseInt(quantity, 10);
+  const unit = parseFloat(price);
+  const qty  = parseInt(quantity, 10);
   if (isNaN(unit) || isNaN(qty)) {
     return res.status(400).json({ success: false, error: 'Invalid price or quantity' });
   }
-  const totalAmount = (unit * qty).toFixed(2);
 
-  // 2) Generate ORDER N#xxxx for the line‐item title
+  // 1) Build total amount and a random ORDER N# title
+  const total    = (unit * qty).toFixed(2);
   const orderNum = Math.floor(1000 + Math.random() * 9000);
   const title    = `ORDER N#${orderNum}`;
 
   try {
-    // 3) Fetch shop currency (required by GraphQL MoneyInput)
+    // 2) Fetch shop currency (MoneyInput needs currencyCode)
     const shopRes = await axios.get(
       `https://${SHOP_DOMAIN}/admin/api/2025-04/shop.json`,
-      { headers: { 'X-Shopify-Access-Token': ACCESS_TOKEN } }
+      { headers: { 'X-Shopify-Access-Token': ACCESS_TOKEN }}
     );
     const currencyCode = shopRes.data.shop.currency; // e.g. "EUR"
 
-    // 4) Build the GraphQL mutation
+    // 3) Prepare GraphQL mutation with customLineItems
     const mutation = `
-      mutation draftOrderCreate($input: DraftOrderInput!) {
+      mutation createDraft($input: DraftOrderInput!) {
         draftOrderCreate(input: $input) {
           draftOrder { invoiceUrl }
-          userErrors { message }
+          userErrors   { message }
         }
       }
     `;
     const variables = {
       input: {
         useCustomerDefaultAddress: true,
-        lineItems: [{
-          title,                               // "ORDER N#xxxx"
-          quantity: 1,                         // always 1 since total embedded
-          originalUnitPrice: {
-            amount: totalAmount,              // price * quantity
-            currencyCode
-          },
-          requiresShipping: true,
-          taxable:          true
-        }]
+        customLineItems: [
+          {
+            title,
+            quantity: 1,                     // one line for the total
+            price: {
+              amount:       parseFloat(total),
+              currencyCode
+            },
+            requiresShipping: true,
+            taxable:          true
+          }
+        ]
       }
     };
 
-    // 5) Call Shopify's GraphQL Admin API
-    const { data: gqlRes } = await axios.post(
+    // 4) Call GraphQL Admin API
+    const { data } = await axios.post(
       `https://${SHOP_DOMAIN}/admin/api/2025-04/graphql.json`,
       { query: mutation, variables },
       {
@@ -83,17 +80,17 @@ app.post('/create-draft-order', async (req, res) => {
       }
     );
 
-    // 6) Gather errors (top‐level + userErrors)
-    const top = gqlRes.errors || [];
-    const user = gqlRes.data?.draftOrderCreate.userErrors || [];
-    const allErrors = [...top, ...user];
+    // 5) Handle any errors
+    const topErrors  = data.errors || [];
+    const userErrors = data.data.draftOrderCreate.userErrors || [];
+    const allErrors  = [...topErrors, ...userErrors];
     if (allErrors.length) {
       const msg = allErrors.map(e => e.message || e).join('; ');
       return res.status(500).json({ success: false, error: msg });
     }
 
-    // 7) Return the invoice URL
-    const invoiceUrl = gqlRes.data.draftOrderCreate.draftOrder.invoiceUrl;
+    // 6) Success → return the invoice URL
+    const invoiceUrl = data.data.draftOrderCreate.draftOrder.invoiceUrl;
     return res.json({ success: true, url: invoiceUrl });
 
   } catch (err) {
@@ -102,4 +99,6 @@ app.post('/create-draft-order', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => console.log(`✅ Server listening on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`✅ Server listening on port ${PORT}`);
+});
