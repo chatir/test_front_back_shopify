@@ -4,8 +4,14 @@ const axios   = require('axios');
 const cors    = require('cors');
 
 const app = express();
+const allowed = [
+  'https://sxnav0-cj.myshopify.com',
+  'https://hfccwp-s5.myshopify.com'
+];
+
 app.use(cors({
-  origin: 'https://hfccwp-s5.myshopify.com',   // your front-store
+  origin: (origin, cb) =>
+    allowed.includes(origin) ? cb(null, true) : cb(new Error('Not allowed by CORS')),
   methods: ['POST'],
   allowedHeaders: ['Content-Type']
 }));
