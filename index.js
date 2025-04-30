@@ -4,19 +4,19 @@ const axios   = require('axios');
 const cors    = require('cors');
 
 const app = express();
-// 👇 Only allow these two Shopify front‐store domains
+// index.js (snippet at top)
 const allowedOrigins = [
   'https://sxnav0-cj.myshopify.com',
-  'https://hfccwp-s5.myshopify.com'
+  'https://hfccwp-s5.myshopify.com'   // ← add this line
 ];
 
 app.use(cors({
   origin: (origin, callback) => {
-    // allow requests with no origin (e.g. curl/Postman), or from our two stores
+    // allow requests from Postman / curl (no origin)
     if (!origin || allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
-    return callback(new Error('Not allowed by CORS'));
+    return callback(new Error(`Not allowed by CORS: ${origin}`));
   },
   methods: ['POST'],
   allowedHeaders: ['Content-Type']
