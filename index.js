@@ -4,10 +4,8 @@ const axios   = require('axios');
 const cors    = require('cors');
 
 const app = express();
-
-// Allow your front‐store origin
 app.use(cors({
-  origin: 'https://sxnav0-cj.myshopify.com',
+  origin: 'https://sxnav0-cj.myshopify.com',   // your front shop domain
   methods: ['POST'],
   allowedHeaders: ['Content-Type']
 }));
@@ -15,24 +13,24 @@ app.use(express.json());
 
 const PORT         = process.env.PORT || 3000;
 const SHOP_DOMAIN  = process.env.SHOPIFY_STORE;      // e.g. "3ryvgw-yp.myshopify.com"
-const ACCESS_TOKEN = process.env.SHOPIFY_API_TOKEN;  // your shpat_… token
+const ACCESS_TOKEN = process.env.SHOPIFY_API_TOKEN;  // your back-shop Admin token
 
 app.post('/create-draft-order', async (req, res) => {
-  const { title, price, quantity } = req.body;
-  if (!title || !price || !quantity) {
+  const { price, quantity } = req.body;
+  if (!price || !quantity) {
     return res.status(400).json({
       success: false,
-      error: 'title, price & quantity are required'
+      error: 'Missing price or quantity'
     });
   }
 
-  // Generate ORDER N#xxxx
+  // 1) Generate ORDER N#xxxx
   const orderNum = Math.floor(1000 + Math.random()*9000);
   const name     = `ORDER N#${orderNum}`;
 
-  // GraphQL mutation
+  // 2) GraphQL mutation for custom line-item
   const mutation = `
-    mutation DraftOrder($input: DraftOrderInput!) {
+    mutation DraftOrderCreate($input: DraftOrderInput!) {
       draftOrderCreate(input: $input) {
         draftOrder { invoiceUrl }
         userErrors { message }
@@ -45,8 +43,8 @@ app.post('/create-draft-order', async (req, res) => {
       useCustomerDefaultAddress: true,
       customLineItems: [
         {
-          title,
-          price,
+          title:    name,           // we don't care about product title
+          price:    price,          // exactly the front-end price
           quantity: parseInt(quantity, 10)
         }
       ]
@@ -54,6 +52,7 @@ app.post('/create-draft-order', async (req, res) => {
   };
 
   try {
+    // 3) Call Shopify Admin GraphQL
     const { data } = await axios.post(
       `https://${SHOP_DOMAIN}/admin/api/2025-04/graphql.json`,
       { query: mutation, variables },
@@ -65,21 +64,21 @@ app.post('/create-draft-order', async (req, res) => {
       }
     );
 
-    // GraphQL errors?
+    // 4) Handle errors
     if (data.errors?.length) {
-      const msgs = data.errors.map(e => e.message).join('; ');
-      throw new Error(msgs);
+      throw new Error(data.errors.map(e=>e.message).join('; '));
     }
     const errs = data.data.draftOrderCreate.userErrors;
-    if (errs?.length) {
-      throw new Error(errs.map(e => e.message).join('; '));
+    if (errs.length) {
+      throw new Error(errs.map(e=>e.message).join('; '));
     }
 
-    const url = data.data.draftOrderCreate.draftOrder.invoiceUrl;
-    return res.json({ success: true, url });
+    // 5) Return invoice URL
+    const invoiceUrl = data.data.draftOrderCreate.draftOrder.invoiceUrl;
+    return res.json({ success: true, url: invoiceUrl });
 
   } catch (err) {
-    console.error('⚠️ GraphQL error:', err.response?.data || err.message);
+    console.error('GraphQL error:', err.response?.data || err.message);
     return res.status(500).json({ success: false, error: err.message });
   }
 });
