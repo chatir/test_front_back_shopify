@@ -5,7 +5,7 @@ const cors    = require('cors');
 
 const app = express();
 
-// Only allow your front-store origin
+// Allow your front‐store origin
 app.use(cors({
   origin: 'https://sxnav0-cj.myshopify.com',
   methods: ['POST'],
@@ -15,7 +15,7 @@ app.use(express.json());
 
 const PORT         = process.env.PORT || 3000;
 const SHOP_DOMAIN  = process.env.SHOPIFY_STORE;      // e.g. "3ryvgw-yp.myshopify.com"
-const ACCESS_TOKEN = process.env.SHOPIFY_API_TOKEN;  // shpat_… token
+const ACCESS_TOKEN = process.env.SHOPIFY_API_TOKEN;  // your shpat_… token
 
 app.post('/create-draft-order', async (req, res) => {
   const { title, price, quantity } = req.body;
@@ -26,45 +26,61 @@ app.post('/create-draft-order', async (req, res) => {
     });
   }
 
-  // Generate a random ORDER number
-  const orderNum = Math.floor(1000 + Math.random() * 9000);
+  // Generate ORDER N#xxxx
+  const orderNum = Math.floor(1000 + Math.random()*9000);
   const name     = `ORDER N#${orderNum}`;
 
-  // Build payload with a custom line item
-  const payload = {
-    draft_order: {
-      custom_line_items: [
+  // GraphQL mutation
+  const mutation = `
+    mutation DraftOrder($input: DraftOrderInput!) {
+      draftOrderCreate(input: $input) {
+        draftOrder { invoiceUrl }
+        userErrors { message }
+      }
+    }
+  `;
+  const variables = {
+    input: {
+      name,
+      useCustomerDefaultAddress: true,
+      customLineItems: [
         {
-          title:    title,
-          price:    price,     // exactly what you passed
+          title,
+          price,
           quantity: parseInt(quantity, 10)
         }
-      ],
-      name: name,
-      use_customer_default_address: true
+      ]
     }
   };
 
   try {
-    // Call Shopify's REST Admin API
-    const response = await axios.post(
-      `https://${SHOP_DOMAIN}/admin/api/2025-04/draft_orders.json`,
-      payload,
+    const { data } = await axios.post(
+      `https://${SHOP_DOMAIN}/admin/api/2025-04/graphql.json`,
+      { query: mutation, variables },
       {
         headers: {
-          'X-Shopify-Access-Token': ACCESS_TOKEN,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'X-Shopify-Access-Token': ACCESS_TOKEN
         }
       }
     );
 
-    const invoiceUrl = response.data.draft_order.invoice_url;
-    return res.json({ success: true, url: invoiceUrl });
+    // GraphQL errors?
+    if (data.errors?.length) {
+      const msgs = data.errors.map(e => e.message).join('; ');
+      throw new Error(msgs);
+    }
+    const errs = data.data.draftOrderCreate.userErrors;
+    if (errs?.length) {
+      throw new Error(errs.map(e => e.message).join('; '));
+    }
+
+    const url = data.data.draftOrderCreate.draftOrder.invoiceUrl;
+    return res.json({ success: true, url });
 
   } catch (err) {
-    console.error('DraftOrder error:', err.response?.data || err.message);
-    const e = err.response?.data?.errors || err.message;
-    return res.status(500).json({ success: false, error: e });
+    console.error('⚠️ GraphQL error:', err.response?.data || err.message);
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 
