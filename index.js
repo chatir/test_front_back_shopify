@@ -55,6 +55,8 @@ app.post('/create-draft-order', async (req, res) => {
       input: {
         useCustomerDefaultAddress: true,
         presentmentCurrencyCode: currencyCode,
+          note:  "Consult Services",
+          tags:  ["Consult Services"],
         lineItems: [{
           title:                     title,
           quantity:                  1,                     // single line
