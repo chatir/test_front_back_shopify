@@ -5,7 +5,7 @@ const cors    = require('cors');
 
 const app = express();
 app.use(cors({
-  origin: 'https://sxnav0-cj.myshopify.com',   // your front-store
+  origin: 'https://hfccwp-s5.myshopify.com',   // your front-store
   methods: ['POST'],
   allowedHeaders: ['Content-Type']
 }));
