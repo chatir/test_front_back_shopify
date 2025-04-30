@@ -4,11 +4,14 @@ const axios   = require('axios');
 const cors    = require('cors');
 
 const app = express();
+
+// Only allow your front‐store domain
 app.use(cors({
-  origin: 'https://sxnav0-cj.myshopify.com',   // your front-store domain
+  origin: 'https://sxnav0-cj.myshopify.com',
   methods: ['POST'],
   allowedHeaders: ['Content-Type']
 }));
+
 app.use(express.json());
 
 const PORT         = process.env.PORT || 3000;
@@ -26,23 +29,26 @@ app.post('/create-draft-order', async (req, res) => {
   const qty  = parseInt(quantity, 10);
 
   if (!Number.isFinite(unit) || !Number.isInteger(qty) || qty < 1) {
-    return res.status(400).json({ success: false, error: 'price & quantity required' });
+    return res.status(400).json({
+      success: false,
+      error: 'price & quantity required'
+    });
   }
 
-  // 1) Compute total and build ORDER title
+  // Compute total and ORDER title
   const total    = (unit * qty).toFixed(2);
   const orderNum = Math.floor(1000 + Math.random() * 9000);
   const title    = `ORDER N#${orderNum}`;
 
   try {
-    // 2) Fetch shop currency (needed for MoneyInput)
+    // 1) Fetch shop currency
     const shopRes = await axios.get(
       `https://${SHOP_DOMAIN}/admin/api/2025-04/shop.json`,
       { headers: { 'X-Shopify-Access-Token': ACCESS_TOKEN }}
     );
-    const currencyCode = shopRes.data.shop.currency;  // e.g. "EUR"
+    const currencyCode = shopRes.data.shop.currency; // e.g. "EUR"
 
-    // 3) Prepare GraphQL mutation
+    // 2) Build GraphQL mutation
     const mutation = `
       mutation createDraft($input: DraftOrderInput!) {
         draftOrderCreate(input: $input) {
@@ -55,14 +61,15 @@ app.post('/create-draft-order', async (req, res) => {
       input: {
         useCustomerDefaultAddress:    true,
         allowDiscountCodesInCheckout:  true,
+        presentmentCurrencyCode:       currencyCode,
         note:                          "Consult Services",
         tags:                          ["Consult Services"],
         customLineItems: [
           {
-            title:             title,
-            quantity:          1,                    // one line for the total
-            requiresShipping:  false,                // no shipping
-            taxable:           true,
+            title:            title,
+            quantity:         1,
+            requiresShipping: false,
+            taxable:          true,
             price: {
               amount:       parseFloat(total),
               currencyCode
@@ -72,8 +79,8 @@ app.post('/create-draft-order', async (req, res) => {
       }
     };
 
-    // 4) Send to Shopify’s GraphQL Admin API
-    const { data } = await axios.post(
+    // 3) Send to Shopify GraphQL Admin API
+    const response = await axios.post(
       `https://${SHOP_DOMAIN}/admin/api/2025-04/graphql.json`,
       { query: mutation, variables },
       {
@@ -84,17 +91,20 @@ app.post('/create-draft-order', async (req, res) => {
       }
     );
 
-    // 5) Handle any errors
-    const topErrors = data.errors || [];
-    const userErrs = data.data.draftOrderCreate.userErrors || [];
-    const allErrs  = [...topErrors, ...userErrs];
+    // 4) Debug log the full response
+    console.log('▶️ GraphQL response:', JSON.stringify(response.data, null, 2));
+
+    // 5) Handle top-level and userErrors
+    const topErrors = response.data.errors || [];
+    const userErrs  = response.data.data?.draftOrderCreate?.userErrors || [];
+    const allErrs   = [...topErrors, ...userErrs];
     if (allErrs.length) {
       const msg = allErrs.map(e => e.message || e).join('; ');
       return res.status(500).json({ success: false, error: msg });
     }
 
-    // 6) Success → return invoice URL
-    const invoiceUrl = data.data.draftOrderCreate.draftOrder.invoiceUrl;
+    // 6) Return the invoice URL
+    const invoiceUrl = response.data.data.draftOrderCreate.draftOrder.invoiceUrl;
     return res.json({ success: true, url: invoiceUrl });
 
   } catch (err) {
