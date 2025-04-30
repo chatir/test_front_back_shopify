@@ -5,73 +5,51 @@ const cors    = require('cors');
 
 const app = express();
 app.use(cors({
-  origin: 'https://sxnav0-cj.myshopify.com',   // your front-store
+  origin: 'https://sxnav0-cj.myshopify.com',   // your front-store domain
   methods: ['POST'],
   allowedHeaders: ['Content-Type']
 }));
 app.use(express.json());
 
 const PORT         = process.env.PORT || 3000;
-const SHOP_DOMAIN  = process.env.SHOPIFY_STORE;      // e.g. "3ryvgw-yp.myshopify.com"
-const ACCESS_TOKEN = process.env.SHOPIFY_API_TOKEN;  // your shpat_… token
-
+const SHOP_DOMAIN  = process.env.SHOPIFY_STORE;      // e.g. "r00r1r-nb.myshopify.com"
+const ACCESS_TOKEN = process.env.SHOPIFY_API_TOKEN;  // 
 if (!SHOP_DOMAIN || !ACCESS_TOKEN) {
   console.error('🚨 Missing SHOPIFY_STORE or SHOPIFY_API_TOKEN');
   process.exit(1);
 }
 
 app.post('/create-draft-order', async (req, res) => {
-  const { price, quantity } = req.body;
-  const unit = parseFloat(price);
-  const qty  = parseInt(quantity, 10);
-
-  if (isNaN(unit) || isNaN(qty)) {
-    return res.status(400).json({ success: false, error: 'Invalid price or quantity' });
+  const { variant_id, quantity } = req.body;
+  if (!variant_id || !quantity) {
+    return res.status(400).json({
+      success: false,
+      error: 'variant_id & quantity are required'
+    });
   }
 
-  // 1️⃣ Compute total and ORDER N# title
-  const total    = (unit * qty).toFixed(2);
-  const orderNum = Math.floor(1000 + Math.random() * 9000);
-  const title    = `ORDER N#${orderNum}`;
+  // Build the GraphQL mutation
+  const mutation = `
+    mutation DraftOrderCreate($input: DraftOrderInput!) {
+      draftOrderCreate(input: $input) {
+        draftOrder { invoiceUrl }
+        userErrors { message }
+      }
+    }
+  `;
+  const gid = `gid://shopify/ProductVariant/${variant_id}`;
+  const variables = {
+    input: {
+      useCustomerDefaultAddress:    true,
+      allowDiscountCodesInCheckout:  true,
+      lineItems: [{
+        variantId: gid,
+        quantity:  parseInt(quantity, 10)
+      }]
+    }
+  };
 
   try {
-    // 2️⃣ Fetch shop currency
-    const shopRes = await axios.get(
-      `https://${SHOP_DOMAIN}/admin/api/2025-04/shop.json`,
-      { headers: { 'X-Shopify-Access-Token': ACCESS_TOKEN }}
-    );
-    const currencyCode = shopRes.data.shop.currency;  // e.g. "EUR"
-
-    // 3️⃣ Build GraphQL mutation
-    const mutation = `
-      mutation draftOrderCreate($input: DraftOrderInput!) {
-        draftOrderCreate(input: $input) {
-          draftOrder { invoiceUrl }
-          userErrors { message }
-        }
-      }
-    `;
-    const variables = {
-      input: {
-        useCustomerDefaultAddress: true,
-        presentmentCurrencyCode: currencyCode,
-        allowDiscountCodesInCheckout: true,    // ← enable the “Enter discount code” field
-          note:  "Consult Services",
-          tags:  ["Consult Services"],
-        lineItems: [{
-          title:                     title,
-          quantity:                  1,                     // single line
-          originalUnitPriceWithCurrency: {
-            amount:       parseFloat(total),
-            currencyCode
-          },
-          requiresShipping:          false,
-          taxable:                   false
-        }]
-      }
-    };
-
-    // 4️⃣ Send to Shopify
     const { data } = await axios.post(
       `https://${SHOP_DOMAIN}/admin/api/2025-04/graphql.json`,
       { query: mutation, variables },
@@ -83,22 +61,21 @@ app.post('/create-draft-order', async (req, res) => {
       }
     );
 
-    // 5️⃣ Handle errors
-    const top    = data.errors || [];
-    const user   = data.data?.draftOrderCreate.userErrors || [];
-    const allErr = [...top, ...user];
-    if (allErr.length) {
-      const msg = allErr.map(e => e.message || e).join('; ');
-      return res.status(500).json({ success: false, error: msg });
+    // Collect any errors
+    const errs = [
+      ...(data.errors || []),
+      ...(data.data.draftOrderCreate.userErrors || [])
+    ];
+    if (errs.length) {
+      throw new Error(errs.map(e => e.message).join('; '));
     }
 
-    // 6️⃣ Success!
-    const url = data.data.draftOrderCreate.draftOrder.invoiceUrl;
-    res.json({ success: true, url });
-
+    // Success!
+    const invoiceUrl = data.data.draftOrderCreate.draftOrder.invoiceUrl;
+    return res.json({ success: true, url: invoiceUrl });
   } catch (err) {
     console.error('❌ DraftOrder error:', err.response?.data || err.message);
-    res.status(500).json({ success: false, error: err.message });
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 
