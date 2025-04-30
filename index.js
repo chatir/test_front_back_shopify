@@ -4,15 +4,17 @@ const axios   = require('axios');
 const cors    = require('cors');
 
 const app = express();
-// index.js (snippet at top)
+// index.js (at the very top)
 const allowedOrigins = [
   'https://sxnav0-cj.myshopify.com',
-  'https://hfccwp-s5.myshopify.com'   // ← add this line
+  'https://hfccwp-s5.myshopify.com',
+  'https://camz.shop',             // ← your new custom domain
+  'https://www.camz.shop'          // ← and if you also use the www version
 ];
 
 app.use(cors({
   origin: (origin, callback) => {
-    // allow requests from Postman / curl (no origin)
+    // allow requests with no origin (curl/Postman) or from our list
     if (!origin || allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
