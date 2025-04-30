@@ -5,49 +5,63 @@ const cors    = require('cors');
 
 const app = express();
 
-// Allow only your front‐store to call this endpoint
+// Allow only your front-store domain
 app.use(cors({
   origin: 'https://sxnav0-cj.myshopify.com',
   methods: ['POST'],
   allowedHeaders: ['Content-Type']
 }));
-
 app.use(express.json());
 
 const PORT         = process.env.PORT || 3000;
-const SHOP_DOMAIN  = process.env.SHOPIFY_STORE;      // e.g. "3ryvgw-yp.myshopify.com"
-const ACCESS_TOKEN = process.env.SHOPIFY_API_TOKEN;  // your shpat_… Admin API token
+const SHOP_DOMAIN  = process.env.SHOPIFY_STORE;      // back-store domain
+const ACCESS_TOKEN = process.env.SHOPIFY_API_TOKEN;  // back-store Admin token
 
 app.post('/create-draft-order', async (req, res) => {
-  const { variant_id, quantity, price } = req.body;
-  if (!variant_id || !quantity || !price) {
+  const { product_handle, quantity, price } = req.body;
+  if (!product_handle || !quantity || !price) {
     return res.status(400).json({
       success: false,
-      error: 'variant_id, quantity & price required'
+      error: 'product_handle, quantity & price required'
     });
   }
 
-  // Generate a random 4-digit ORDER number
+  // 1) Lookup the product by handle on your back-store
+  let variantId;
+  try {
+    const prodRes = await axios.get(
+      `https://${SHOP_DOMAIN}/admin/api/2025-04/products.json?handle=${product_handle}`,
+      { headers: { 'X-Shopify-Access-Token': ACCESS_TOKEN }}
+    );
+    const products = prodRes.data.products;
+    if (!products.length) {
+      return res.status(404).json({ success:false, error:'Product not found in back-store' });
+    }
+    variantId = products[0].variants[0].id;
+  } catch (e) {
+    console.error('Product lookup error:', e.response?.data || e.message);
+    return res.status(500).json({ success:false, error:'Failed to lookup product' });
+  }
+
+  // 2) Generate a random ORDER number
   const orderNum = Math.floor(1000 + Math.random() * 9000);
   const name     = `ORDER N#${orderNum}`;
 
-  // Build the REST payload
+  // 3) Build draft_order payload
   const payload = {
     draft_order: {
-      line_items: [
-        {
-          variant_id: variant_id,
-          quantity: quantity,
-          price: price           // override with the front-end price
-        }
-      ],
-      name: name,               // custom draft order title
+      line_items: [{
+        variant_id: variantId,
+        quantity:  parseInt(quantity, 10),
+        price:     price
+      }],
+      name: name,
       use_customer_default_address: true
     }
   };
 
+  // 4) Create the draft order
   try {
-    // Call Shopify's REST Admin API to create the draft order
     const response = await axios.post(
       `https://${SHOP_DOMAIN}/admin/api/2025-04/draft_orders.json`,
       payload,
@@ -58,15 +72,13 @@ app.post('/create-draft-order', async (req, res) => {
         }
       }
     );
-
-    // Pull out the invoice URL and return it
     const invoiceUrl = response.data.draft_order.invoice_url;
     return res.json({ success: true, url: invoiceUrl });
 
-  } catch (error) {
-    console.error('REST API error:', error.response?.data || error.message);
-    const err = error.response?.data?.errors || error.message;
-    return res.status(500).json({ success: false, error: err });
+  } catch (err) {
+    console.error('Draft order error:', err.response?.data || err.message);
+    const e = err.response?.data?.errors || err.message;
+    return res.status(500).json({ success:false, error: e });
   }
 });
 
