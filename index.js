@@ -8,8 +8,8 @@ const app = express();
 const allowedOrigins = [
   'https://sxnav0-cj.myshopify.com',
   'https://hfccwp-s5.myshopify.com',
-  'https://camz.shop',             // ← your new custom domain
-  'https://www.camz.shop'          // ← and if you also use the www version
+  'https://vintcam.shop',             // ← your new custom domain
+  'https://www.vintcam.shop'          // ← and if you also use the www version
 ];
 
 app.use(cors({
