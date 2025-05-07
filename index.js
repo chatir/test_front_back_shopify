@@ -8,6 +8,7 @@ const app = express();
 const allowedOrigins = [
   'https://sxnav0-cj.myshopify.com',
   'https://hfccwp-s5.myshopify.com',
+   'https://i8xs6t-z0.myshopify.com',
   'https://vintcam.shop',             // ← your new custom domain
   'https://www.vintcam.shop'          // ← and if you also use the www version
 ];
