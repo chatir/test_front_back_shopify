@@ -78,7 +78,7 @@ app.post('/create-draft-order', async (req, res) => {
             amount:       parseFloat(total),
             currencyCode
           },
-          requiresShipping:          true,
+          requiresShipping:          false,
           taxable:                   false
         }]
       }
