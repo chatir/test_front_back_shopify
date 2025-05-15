@@ -69,8 +69,6 @@ app.post('/create-draft-order', async (req, res) => {
         useCustomerDefaultAddress: true,
         presentmentCurrencyCode: currencyCode,
         allowDiscountCodesInCheckout: true,    // ← enable the “Enter discount code” field
-          note:  "Consult Services",
-          tags:  ["Consult Services"],
         lineItems: [{
           title:                     title,
           quantity:                  1,                     // single line
