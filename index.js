@@ -6,9 +6,9 @@ const cors    = require('cors');
 const app = express();
 // index.js (at the very top)
 const allowedOrigins = [
-  'https://w6sjhc-xv.myshopify.com',
-  'https://camlux.shop',             // ← your new custom domain
-  'https://www.camlux.shop'          // ← and if you also use the www version
+  'https://zjnquw-ik.myshopify.com',
+  'https://camyx.shop',             // ← your new custom domain
+  'https://www.camyx.shop'          // ← and if you also use the www version
 ];
 
 app.use(cors({
