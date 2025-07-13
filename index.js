@@ -4,16 +4,15 @@ const axios   = require('axios');
 const cors    = require('cors');
 
 const app = express();
-// index.js (at the very top)
+
 const allowedOrigins = [
   'https://zjnquw-ik.myshopify.com',
-  'https://camyx.shop',             // ← your new custom domain
-  'https://www.camyx.shop'          // ← and if you also use the www version
+  'https://camyx.shop',
+  'https://www.camyx.shop'
 ];
 
 app.use(cors({
   origin: (origin, callback) => {
-    // allow requests with no origin (curl/Postman) or from our list
     if (!origin || allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
@@ -25,8 +24,8 @@ app.use(cors({
 app.use(express.json());
 
 const PORT         = process.env.PORT || 3000;
-const SHOP_DOMAIN  = process.env.SHOPIFY_STORE;      // e.g. "3ryvgw-yp.myshopify.com"
-const ACCESS_TOKEN = process.env.SHOPIFY_API_TOKEN;  // your shpat_… token
+const SHOP_DOMAIN  = process.env.SHOPIFY_STORE;
+const ACCESS_TOKEN = process.env.SHOPIFY_API_TOKEN;
 
 if (!SHOP_DOMAIN || !ACCESS_TOKEN) {
   console.error('🚨 Missing SHOPIFY_STORE or SHOPIFY_API_TOKEN');
@@ -42,20 +41,14 @@ app.post('/create-draft-order', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Invalid price or quantity' });
   }
 
-  // 1️⃣ Compute total and ORDER N# title
   const total    = (unit * qty).toFixed(2);
   const orderNum = Math.floor(1000 + Math.random() * 9000);
   const title    = `ORDER N#${orderNum}`;
 
   try {
-    // 2️⃣ Fetch shop currency
-    const shopRes = await axios.get(
-      `https://${SHOP_DOMAIN}/admin/api/2025-04/shop.json`,
-      { headers: { 'X-Shopify-Access-Token': ACCESS_TOKEN }}
-    );
-    const currencyCode = shopRes.data.shop.currency;  // e.g. "EUR"
+    // 🔒 Force currency to USD
+    const currencyCode = 'USD';
 
-    // 3️⃣ Build GraphQL mutation
     const mutation = `
       mutation draftOrderCreate($input: DraftOrderInput!) {
         draftOrderCreate(input: $input) {
@@ -64,37 +57,36 @@ app.post('/create-draft-order', async (req, res) => {
         }
       }
     `;
+
     const variables = {
       input: {
         useCustomerDefaultAddress: true,
         presentmentCurrencyCode: currencyCode,
-        allowDiscountCodesInCheckout: true,    // ← enable the “Enter discount code” field
+        allowDiscountCodesInCheckout: true,
         lineItems: [{
-          title:                     title,
-          quantity:                  1,                     // single line
+          title: title,
+          quantity: 1,
           originalUnitPriceWithCurrency: {
-            amount:       parseFloat(total),
+            amount: parseFloat(total),
             currencyCode
           },
-          requiresShipping:          false,
-          taxable:                   false
+          requiresShipping: false,
+          taxable: false
         }]
       }
     };
 
-    // 4️⃣ Send to Shopify
     const { data } = await axios.post(
       `https://${SHOP_DOMAIN}/admin/api/2025-04/graphql.json`,
       { query: mutation, variables },
       {
         headers: {
-          'Content-Type':          'application/json',
+          'Content-Type': 'application/json',
           'X-Shopify-Access-Token': ACCESS_TOKEN
         }
       }
     );
 
-    // 5️⃣ Handle errors
     const top    = data.errors || [];
     const user   = data.data?.draftOrderCreate.userErrors || [];
     const allErr = [...top, ...user];
@@ -103,7 +95,6 @@ app.post('/create-draft-order', async (req, res) => {
       return res.status(500).json({ success: false, error: msg });
     }
 
-    // 6️⃣ Success!
     const url = data.data.draftOrderCreate.draftOrder.invoiceUrl;
     res.json({ success: true, url });
 
